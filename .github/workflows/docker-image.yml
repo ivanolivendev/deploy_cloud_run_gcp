@@ -1,18 +1,39 @@
-name: Docker Image CI
+name: Deploy to Cloud Run
 
 on:
   push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
+    branches:
+      - main
 
 jobs:
-
-  build:
-
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v0.2.0
+        with:
+          project_id: bioinformatica-429621
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      - name: Configure Docker Buildx
+        run: |
+          docker run --rm --privileged docker/binfmt:a7996909642ee92942dcd6cff44b9b95f08dad64
+
+      - name: Build and push Docker image to Google Container Registry (GCR)
+        run: |
+          gcloud auth configure-docker
+          docker build . --file Dockerfile --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/bioconda-app:latest
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/bioconda-app:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy bioconda-app \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/bioconda-app:latest \
+            --platform managed \
+            --region us-central1 \
+            --allow-unauthenticated
